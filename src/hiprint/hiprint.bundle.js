@@ -10571,6 +10571,57 @@ var hiprint = function (t) {
 	hinnn.event.trigger("onSelectPanel", this.template.editingPanel, i, li);
       }, t;
     }(),
+    fixTableMergeForPdf = function (clonedDoc) {
+      var isPlaceholderTd = function (td) {
+        var display = td.style.display;
+        var rowspanAttr = td.getAttribute("rowspan");
+        var colspanAttr = td.getAttribute("colspan");
+        return display === "none" || rowspanAttr === "0" || colspanAttr === "0";
+      };
+      var hasVisibleBackground = function (td) {
+        var bg = td.style.backgroundColor;
+        if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") return !0;
+        try {
+          var win = td.ownerDocument && td.ownerDocument.defaultView;
+          if (win && win.getComputedStyle) {
+            bg = win.getComputedStyle(td).backgroundColor;
+            return bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)";
+          }
+        } catch (e) {}
+        return !1;
+      };
+      var applyMergeCellStyle = function (td) {
+        var rowspan = parseInt(td.getAttribute("rowspan") || "1", 10);
+        var colspan = parseInt(td.getAttribute("colspan") || "1", 10);
+        if (rowspan > 1 || colspan > 1) {
+          td.style.position = "relative";
+          td.style.zIndex = "10";
+          if (!hasVisibleBackground(td)) {
+            td.style.backgroundColor = "#ffffff";
+          }
+        }
+        td.style.border = "1px solid rgb(0, 0, 0)";
+      };
+      var tables = clonedDoc.querySelectorAll(".hiprint-printElement-tableTarget");
+      for (var ti = 0; ti < tables.length; ti++) {
+        var table = tables[ti];
+        var rows = table.querySelectorAll("thead tr, tbody tr, tfoot tr");
+        for (var ri = 0; ri < rows.length; ri++) {
+          rows[ri].style.border = "none";
+          rows[ri].style.background = "transparent";
+        }
+        var tds = table.querySelectorAll("thead td, tbody td, tfoot td");
+        for (var di = tds.length - 1; di >= 0; di--) {
+          var td = tds[di];
+          if (!td) continue;
+          if (isPlaceholderTd(td)) {
+            td.parentNode && td.parentNode.removeChild(td);
+            continue;
+          }
+          applyMergeCellStyle(td);
+        }
+      }
+    },
     ct = function () {
       function t(t) {
         var e = this;
@@ -10865,14 +10916,23 @@ var hiprint = function (t) {
         if (this.printPanels.length) {
           var r = o.a.mm.toPt(this.printPanels[0].width),
             a = o.a.mm.toPt(this.printPanels[0].height),
+            userOnclone = options && options.onclone,
             p = $.extend({
               scale: 2,
               width: o.a.pt.toPx(r),
               x: 0,
               y: 0,
-              useCORS: !0
-            }, options || {}),
-            s = new jsPDF({
+              useCORS: !0,
+              bgcolor: "#ffffff"
+            }, options || {});
+          p.onclone = function (clonedDoc) {
+            fixTableMergeForPdf(clonedDoc);
+            clonedDoc.querySelectorAll(".hiprint-printPaper").forEach(function (el) {
+              if (!el.style.backgroundColor) el.style.backgroundColor = "#ffffff";
+            });
+            userOnclone && userOnclone(clonedDoc);
+          };
+          var s = new jsPDF({
               orientation: 1 == this.getOrient(0) ? "portrait" : "landscape",
               unit: "pt",
               format: this.printPanels[0].paperType ? this.printPanels[0].paperType.toLocaleLowerCase() : [r, a]
